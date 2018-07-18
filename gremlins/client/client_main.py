@@ -1,13 +1,19 @@
 import pika
+from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber
 
-connection = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
 
-channel = connection.channel()
+connection1 = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
+connection2 = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
 
-channel.queue_declare(queue="tasks", durable=False)
-channel.queue_purge(queue="tasks")
+publisher = TaskPublisher(connection1)
+subscriber = TaskSubscriber(connection2)
 
-channel.queue_declare(queue="results", durable=False)
-channel.queue_purge(queue="results")
+publisher.start()
+subscriber.start()
+
+while True:
+    from random import randint
+    hook = publisher.submit_task("rotfl", [randint(0,100), randint(0, 100)])
+    print(hook())
 
 channel.close()

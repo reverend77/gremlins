@@ -3,25 +3,26 @@ from itertools import cycle
 from threading import RLock, Thread
 from time import sleep
 
-__TASK_SUBMIT_QUEUE_NAME = "task_queue"
-__TASK_RETURN_QUEUE_NAME = "task_result_queue"
-"""
-Only one instance of this class should be created during program execution.
-"""
+TASK_SUBMIT_QUEUE_NAME = "task_queue"
+TASK_RETURN_QUEUE_NAME = "task_result_queue"
 
 
 class TaskPublisher(Thread):
+    """
+    Only one instance of this class should be created during program execution.
+    """
     _MAX_ID = 100_000
 
     def __init__(self, connection):
+        Thread.__init__(self)
         output_channel = connection.channel()
         input_channel = connection.channel()
 
-        output_channel.queue_declare(queue=__name__.__TASK_SUBMIT_QUEUE_NAME, durable=False)
-        output_channel.queue_purge(queue=__name__.__TASK_SUBMIT_QUEUE_NAME)
+        output_channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
+        output_channel.queue_purge(queue=TASK_SUBMIT_QUEUE_NAME)
 
-        input_channel.queue_declare(queue=__name__.__TASK_RETURN_QUEUE_NAME, durable=False)
-        input_channel.queue_purge(queue=__name__.__TASK_RETURN_QUEUE_NAME)
+        input_channel.queue_declare(queue=TASK_RETURN_QUEUE_NAME, durable=False)
+        input_channel.queue_purge(queue=TASK_RETURN_QUEUE_NAME)
 
         self.__output_channel = output_channel
         self.__input_channel = input_channel
@@ -41,14 +42,13 @@ class TaskPublisher(Thread):
 
         def process_result(ch, method, properties, body):
             result = json.loads(body)
-            task_id = body["id"]
+            task_id = result["id"]
 
             with self.__lock:
                 self.__finished_tasks.add(task_id)
                 self.__tasks[task_id] = result
 
-        self.__input_channel.basic_consume(process_result, queue=__name__.__TASK_RETURN_QUEUE_NAME, no_ack=True)
-
+        self.__input_channel.basic_consume(process_result, queue=TASK_RETURN_QUEUE_NAME, no_ack=True)
         self.__input_channel.start_consuming()
 
     def submit_task(self, task_name, task_args):
@@ -56,7 +56,7 @@ class TaskPublisher(Thread):
         task_data = {"task": task_name, "args": task_args, "id": task_id}
         serialized_task = json.dumps(task_data)
         with self.__lock:
-            self.__output_channel.basic_publish(exchange="", routing_key=__name__.__TASK_SUBMIT_QUEUE_NAME,
+            self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
                                                 body=serialized_task)
             self.__tasks[task_id] = None
 
@@ -68,11 +68,43 @@ class TaskPublisher(Thread):
                         del self.__tasks[task_id]
                         self.__finished_tasks.remove(task_id)
 
-                        return data
+                        return data["result"]
                 sleep(0.05)
 
         return join
 
 
 class TaskSubscriber(Thread):
-    pass
+    """
+    Task subscriber aka worker. Ideally, one instance per
+    """
+    def __init__(self, connection):
+        Thread.__init__(self)
+        output_channel = connection.channel()
+        input_channel = connection.channel()
+
+        output_channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
+        output_channel.queue_purge(queue=TASK_SUBMIT_QUEUE_NAME)
+
+        input_channel.queue_declare(queue=TASK_RETURN_QUEUE_NAME, durable=False)
+        input_channel.queue_purge(queue=TASK_RETURN_QUEUE_NAME)
+
+        self.__output_channel = output_channel
+        self.__input_channel = input_channel
+
+    def run(self):
+        def process_request(ch, method, properties, body):
+            request = json.loads(body)
+            result = self.__execute_task(request["task"], request["args"])
+            result_dict = {"id": request["id"], "result": result}
+            result_json = json.dumps(result_dict)
+
+            self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
+                                                body=result_json)
+
+        self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=True)
+        self.__input_channel.start_consuming()
+
+    @staticmethod
+    def __execute_task(task_name, args):
+        return args[0] * args[1]
