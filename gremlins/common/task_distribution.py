@@ -52,6 +52,13 @@ class TaskPublisher(Thread):
         self.__input_channel.start_consuming()
 
     def submit_task(self, task_name, task_args):
+        """
+        Submits a task to be executed on a remote node.
+        :param task_name: Name (identifier) of the task to be executed.
+        :param task_args: Args of the function that will be called.
+        :return: Returns a callable object. When the object is called, it blocks until a result is retrieved.
+        The callable returns the result, without exposing the internal mechanisms of the producer-substriber pair.
+        """
         task_id = self.__get_next_id()
         task_data = {"task": task_name, "args": task_args, "id": task_id}
         serialized_task = json.dumps(task_data)
