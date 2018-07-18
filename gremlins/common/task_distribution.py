@@ -73,5 +73,6 @@ class TaskPublisher(Thread):
 
         return join
 
+
 class TaskSubscriber(Thread):
     pass
