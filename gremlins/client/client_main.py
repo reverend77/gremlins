@@ -21,6 +21,6 @@ reporter.start()
 while True:
     from random import randint
     hook = publisher.submit_task("rotfl", [randint(0,100), randint(0, 100)])
-    hook()
+    print(hook())
 
 channel.close()
