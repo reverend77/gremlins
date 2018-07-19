@@ -1,7 +1,9 @@
 import json
 from itertools import cycle
 from threading import RLock, Thread
-from time import sleep
+from time import sleep, monotonic
+from socket import gethostname
+from copy import deepcopy
 
 TASK_SUBMIT_QUEUE_NAME = "task_queue"
 TASK_RETURN_QUEUE_NAME = "task_result_queue"
@@ -81,6 +83,46 @@ class TaskPublisher(Thread):
         return join
 
 
+ACTIVITY_NODE_QUEUE_NAME = "activity_observer_queue"
+
+
+class NodeActivityObserver(Thread):
+    """
+    Class responsible of observing node activity.
+    """
+    def __init__(self, connection):
+        Thread.__init__(self)
+        self.__channel = connection.channel()
+        self.__channel.queue_declare(queue=ACTIVITY_NODE_QUEUE_NAME, durable=False)
+        self.__channel.queue_purge(queue=ACTIVITY_NODE_QUEUE_NAME)
+        self.__nodes = dict()
+        self.__lock = RLock()
+
+    def run(self):
+        def process_result(ch, method, properties, body):
+            info = json.loads(body)
+            node_name = info["source"]
+            with self.__lock:
+                self.__nodes[node_name] = monotonic()
+
+        self.__channel.basic_consume(process_result, queue=ACTIVITY_NODE_QUEUE_NAME, no_ack=True)
+        self.__channel.start_consuming()
+
+    @property
+    def nodes(self):
+        with self.__lock:
+            return deepcopy(self.__nodes)
+
+
+class NodeActivityNotifier(Thread):
+    """
+    Class responsible of notifying task publisher
+    that a node is inaccessible so that tasks might be enqueued once again.
+    """
+    def __init__(self, task_publisher, activity_observer):
+        pass
+
+
 class TaskSubscriber(Thread):
     """
     Task subscriber aka worker. Ideally, one instance per
@@ -103,7 +145,7 @@ class TaskSubscriber(Thread):
         def process_request(ch, method, properties, body):
             request = json.loads(body)
             result = self.__execute_task(request["task"], request["args"])
-            result_dict = {"id": request["id"], "result": result}
+            result_dict = {"id": request["id"], "result": result, "source": gethostname()}
             result_json = json.dumps(result_dict)
 
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
