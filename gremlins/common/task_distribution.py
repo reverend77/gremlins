@@ -123,6 +123,9 @@ class TaskPublisher(Thread):
             while True:
                 now = monotonic()
                 with self.__lock:
+                    not_claimed_for_too_long = (task_id not in self.__task_claims
+                                                and now - self.__task_times[task_id] > self._MAX_UNCLAIMED_WAIT_TIME)
+
                     if task_id in self.__finished_tasks:
                         data = self.__tasks[task_id]
                         del self.__tasks[task_id]
@@ -131,15 +134,19 @@ class TaskPublisher(Thread):
                         self.__finished_tasks.remove(task_id)
 
                         return data
-                    elif task_id in self.__task_claims:
+                    elif task_id in self.__task_claims or not_claimed_for_too_long:
+                        """
+                        Task has been claimed suspiciously long ago or it was not claimed for too long.
+                        """
                         responsible_node = self.__task_claims[task_id]
                         node_inactive = self.__activity_observer.remove_if_timed_out(responsible_node)
 
-                        if node_inactive:  # retry operation
+                        if node_inactive or not_claimed_for_too_long:  # retry operation
                             task_data = {"task": task_name, "args": task_args, "id": task_id, "time": now}
                             serialized_task = json.dumps(task_data)
 
-                            del self.__task_claims[task_id]
+                            if node_inactive:
+                                del self.__task_claims[task_id]
                             self.__task_times[task_id] = now
                             self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
                                                                 body=serialized_task)
