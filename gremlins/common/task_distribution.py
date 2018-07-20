@@ -73,13 +73,23 @@ class TaskPublisher(Thread):
                                                 body=serialized_task)
             self.__tasks[task_id] = None
 
+        task_finished = False
+        task_result = None
+
         def join():
+            nonlocal task_finished
+            nonlocal task_result
+
+            if task_finished:
+                return task_result
             while True:
                 with self.__lock:
                     if task_id in self.__finished_tasks:
                         data = self.__tasks[task_id]
                         del self.__tasks[task_id]
                         self.__finished_tasks.remove(task_id)
+                        task_finished = True
+                        task_result = data
 
                         return data
                 sleep(0.05)
