@@ -9,50 +9,13 @@ TASK_RETURN_QUEUE_NAME = "task_result_queue"
 ACTIVITY_NODE_QUEUE_NAME = "activity_observer_queue"
 
 
-class NodeActivityObserver(Thread):
-    _TIMEOUT = 120
-    """
-    Class responsible of observing node activity.
-    """
-
-    def __init__(self, connection):
-        Thread.__init__(self)
-        self.__channel = connection.channel()
-        self.__channel.queue_declare(queue=ACTIVITY_NODE_QUEUE_NAME, durable=False)
-        self.__channel.queue_purge(queue=ACTIVITY_NODE_QUEUE_NAME)
-        self.__nodes = dict()
-        self.__lock = RLock()
-
-    def run(self):
-        def process_result(ch, method, properties, body):
-            info = json.loads(body.decode('utf-8'))
-            node_name = info["source"]
-            with self.__lock:
-                self.__nodes[node_name] = monotonic()
-
-        self.__channel.basic_consume(process_result, queue=ACTIVITY_NODE_QUEUE_NAME, no_ack=True)
-        self.__channel.start_consuming()
-
-    def remove_if_timed_out(self, node_name):
-        with self.__lock:
-            now = monotonic()
-            node_last_activity = self.__nodes[node_name]
-
-            if now - node_last_activity > self._TIMEOUT:
-                del self.__nodes[node_name]
-                return True
-            else:
-                return False
-
-
 class TaskPublisher(Thread):
     """
     Only one instance of this class should be created during program execution.
     """
     _MAX_ID = 100 * 1000
-    _MAX_UNCLAIMED_WAIT_TIME = 15 * 60  # 15 minutes
 
-    def __init__(self, connection, observer):
+    def __init__(self, connection):
         Thread.__init__(self)
         output_channel = connection.channel()
         input_channel = connection.channel()
@@ -69,9 +32,6 @@ class TaskPublisher(Thread):
         self.__id_source = cycle(range(self._MAX_ID))
         self.__lock = RLock()
         self.__finished_tasks = set()
-        self.__task_claims = dict()
-        self.__task_times = dict()
-        self.__activity_observer = observer
 
     def __get_next_id(self):
         with self.__lock:
@@ -85,19 +45,10 @@ class TaskPublisher(Thread):
         def process_result(ch, method, properties, body):
             message = json.loads(body.decode("utf-8"))
             task_id = message["id"]
-            message_type = message["type"]
-            relevant = (message["time"] == self.__task_times[task_id])
 
-            if relevant:
-                if message_type == "result":
-                    with self.__lock:
-                        self.__finished_tasks.add(task_id)
-                        self.__tasks[task_id] = message["result"]
-                elif message_type == "claim":
-                    with self.__lock:
-                        self.__task_claims[task_id] = message["source"]
-                elif message_type == "continue":
-                    self.__task_times[task_id] = monotonic()
+            with self.__lock:
+                self.__finished_tasks.add(task_id)
+                self.__tasks[task_id] = message["result"]
 
         self.__input_channel.basic_consume(process_result, queue=TASK_RETURN_QUEUE_NAME, no_ack=True)
         self.__input_channel.start_consuming()
@@ -119,39 +70,17 @@ class TaskPublisher(Thread):
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
                                                 body=serialized_task)
             self.__tasks[task_id] = None
-            self.__task_times[task_id] = now
 
         def join():
             while True:
-                now = monotonic()
                 with self.__lock:
-                    not_claimed_for_too_long = (task_id not in self.__task_claims
-                                                and now - self.__task_times[task_id] > self._MAX_UNCLAIMED_WAIT_TIME)
 
                     if task_id in self.__finished_tasks:
                         data = self.__tasks[task_id]
                         del self.__tasks[task_id]
-                        del self.__task_claims[task_id]
-                        del self.__task_times[task_id]
                         self.__finished_tasks.remove(task_id)
 
                         return data
-                    elif task_id in self.__task_claims or not_claimed_for_too_long:
-                        """
-                        Task has been claimed suspiciously long ago or it was not claimed for too long.
-                        """
-                        responsible_node = self.__task_claims[task_id]
-                        node_inactive = self.__activity_observer.remove_if_timed_out(responsible_node)
-
-                        if node_inactive or not_claimed_for_too_long:  # retry operation
-                            task_data = {"task": task_name, "args": task_args, "id": task_id, "time": now}
-                            serialized_task = json.dumps(task_data).encode("utf-8")
-
-                            if node_inactive:
-                                del self.__task_claims[task_id]
-                            self.__task_times[task_id] = now
-                            self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
-                                                                body=serialized_task)
 
                 sleep(0.05)
 
@@ -182,11 +111,6 @@ class TaskSubscriber(Thread):
         def process_request(ch, method, properties, body):
             request = json.loads(body.decode('utf-8'))
 
-            initial_response = {"source": gethostname(), "id": request["id"], "type": "claim", "time": request["time"]}
-            initial_response_json = json.dumps(initial_response).encode("utf-8")
-            self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
-                                                body=initial_response_json)
-
             result = self.__execute_task(request["task"], request["args"])
             result_dict = {"id": request["id"], "result": result, "source": gethostname(), "type": "result",
                            "time": request["time"]}
@@ -195,38 +119,11 @@ class TaskSubscriber(Thread):
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
                                                 body=result_json)
 
-        self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=True)
+        self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=False)
         self.__input_channel.start_consuming()
-
-    def request_timeout_refresh(self, task_id):
-        """
-        For long running tasks - inform client that a task is still running.
-        :param task_id:
-        :return:
-        """
-        data = {"source": gethostname(), "task": task_id, "type": "continue"}
-        json_data = json.dumps(data).encode("utf-8")
-        self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME, body=json_data)
 
     @staticmethod
     def __execute_task(task_name, args):
         return args[0] * args[1]
 
 
-class NodeActivityReporter(Thread):
-    """
-    Reports node activity
-    """
-
-    def __init__(self, connection):
-        Thread.__init__(self)
-        self.__channel = connection.channel()
-        self.__channel.queue_declare(queue=ACTIVITY_NODE_QUEUE_NAME, durable=False)
-
-    def run(self):
-        while True:
-            data = {"source": gethostname()}
-            json_data = json.dumps(data).encode("utf-8")
-            self.__channel.basic_publish(exchange="", routing_key=ACTIVITY_NODE_QUEUE_NAME,
-                                         body=json_data)
-            sleep(15)
