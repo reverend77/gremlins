@@ -80,8 +80,9 @@ class TaskPublisher(Thread):
             nonlocal task_finished
             nonlocal task_result
 
-            if task_finished:
-                return task_result
+            with self.__lock:
+                if task_finished:
+                    return task_result
             while True:
                 with self.__lock:
                     if task_id in self.__finished_tasks:
@@ -92,7 +93,7 @@ class TaskPublisher(Thread):
                         task_result = data
 
                         return data
-                sleep(0.05)
+                sleep(0.01)
 
         return join
 
