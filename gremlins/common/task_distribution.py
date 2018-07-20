@@ -15,12 +15,14 @@ class TaskPublisher(Thread):
     """
     _MAX_ID = 100 * 1000
 
-    def __init__(self, connection):
+    def __init__(self, connection_in, connection_out):
         Thread.__init__(self)
-        output_channel = connection.channel()
-        input_channel = connection.channel()
+        output_channel = connection_out.channel()
+        input_channel = connection_in.channel()
 
         output_channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
+        output_channel.basic_qos(prefetch_count=2)
+
         output_channel.queue_purge(queue=TASK_SUBMIT_QUEUE_NAME)
 
         input_channel.queue_declare(queue=TASK_RETURN_QUEUE_NAME, durable=False)
@@ -74,40 +76,33 @@ class TaskPublisher(Thread):
         def join():
             while True:
                 with self.__lock:
-
                     if task_id in self.__finished_tasks:
                         data = self.__tasks[task_id]
                         del self.__tasks[task_id]
                         self.__finished_tasks.remove(task_id)
 
                         return data
-
                 sleep(0.05)
 
         return join
 
 
-class TaskSubscriber(Thread):
+class TaskSubscriber:
     """
     Task subscriber aka worker. Ideally, one instance per
     """
 
     def __init__(self, connection):
-        Thread.__init__(self)
-        Thread.setDaemon(self, True)
         output_channel = connection.channel()
         input_channel = connection.channel()
 
         output_channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
-        output_channel.queue_purge(queue=TASK_SUBMIT_QUEUE_NAME)
-
         input_channel.queue_declare(queue=TASK_RETURN_QUEUE_NAME, durable=False)
-        input_channel.queue_purge(queue=TASK_RETURN_QUEUE_NAME)
 
         self.__output_channel = output_channel
         self.__input_channel = input_channel
 
-    def run(self):
+    def start(self):
         def process_request(ch, method, properties, body):
             request = json.loads(body.decode('utf-8'))
 
