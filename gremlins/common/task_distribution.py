@@ -96,6 +96,8 @@ class TaskPublisher(Thread):
                 elif message_type == "claim":
                     with self.__lock:
                         self.__task_claims[task_id] = message["source"]
+                elif message_type == "continue":
+                    self.__task_times[task_id] = monotonic()
 
         self.__input_channel.basic_consume(process_result, queue=TASK_RETURN_QUEUE_NAME, no_ack=True)
         self.__input_channel.start_consuming()
@@ -195,6 +197,16 @@ class TaskSubscriber(Thread):
 
         self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=True)
         self.__input_channel.start_consuming()
+
+    def request_timeout_refresh(self, task_id):
+        """
+        For long running tasks - inform client that a task is still running.
+        :param task_id:
+        :return:
+        """
+        data = {"source": gethostname(), "task": task_id, "type": "continue"}
+        json_data = json.dumps(data)
+        self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME, body=json_data)
 
     @staticmethod
     def __execute_task(task_name, args):
