@@ -20,7 +20,7 @@ reporter.start()
 
 while True:
     from random import randint
-    hooks = [x for x in [publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)]) for __ in range(10)]]
-    [print(hook()) for hook in hooks]
+    hook = publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)])
+    print(hook())
 
 channel.close()

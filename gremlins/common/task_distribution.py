@@ -25,7 +25,7 @@ class NodeActivityObserver(Thread):
 
     def run(self):
         def process_result(ch, method, properties, body):
-            info = json.loads(body)
+            info = json.loads(body.decode('utf-8'))
             node_name = info["source"]
             with self.__lock:
                 self.__nodes[node_name] = monotonic()
@@ -49,7 +49,7 @@ class TaskPublisher(Thread):
     """
     Only one instance of this class should be created during program execution.
     """
-    _MAX_ID = 100_000
+    _MAX_ID = 100 * 1000
     _MAX_UNCLAIMED_WAIT_TIME = 15 * 60  # 15 minutes
 
     def __init__(self, connection, observer):
@@ -83,7 +83,7 @@ class TaskPublisher(Thread):
     def run(self):
 
         def process_result(ch, method, properties, body):
-            message = json.loads(body)
+            message = json.loads(body.decode("utf-8"))
             task_id = message["id"]
             message_type = message["type"]
             relevant = (message["time"] == self.__task_times[task_id])
@@ -114,7 +114,7 @@ class TaskPublisher(Thread):
 
         task_id = self.__get_next_id()
         task_data = {"task": task_name, "args": task_args, "id": task_id, "time": now}
-        serialized_task = json.dumps(task_data)
+        serialized_task = json.dumps(task_data).encode("utf-8")
         with self.__lock:
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
                                                 body=serialized_task)
@@ -145,7 +145,7 @@ class TaskPublisher(Thread):
 
                         if node_inactive or not_claimed_for_too_long:  # retry operation
                             task_data = {"task": task_name, "args": task_args, "id": task_id, "time": now}
-                            serialized_task = json.dumps(task_data)
+                            serialized_task = json.dumps(task_data).encode("utf-8")
 
                             if node_inactive:
                                 del self.__task_claims[task_id]
@@ -180,17 +180,17 @@ class TaskSubscriber(Thread):
 
     def run(self):
         def process_request(ch, method, properties, body):
-            request = json.loads(body)
+            request = json.loads(body.decode('utf-8'))
 
             initial_response = {"source": gethostname(), "id": request["id"], "type": "claim", "time": request["time"]}
-            initial_response_json = json.dumps(initial_response)
+            initial_response_json = json.dumps(initial_response).encode("utf-8")
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
                                                 body=initial_response_json)
 
             result = self.__execute_task(request["task"], request["args"])
             result_dict = {"id": request["id"], "result": result, "source": gethostname(), "type": "result",
                            "time": request["time"]}
-            result_json = json.dumps(result_dict)
+            result_json = json.dumps(result_dict).encode("utf-8")
 
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
                                                 body=result_json)
@@ -205,7 +205,7 @@ class TaskSubscriber(Thread):
         :return:
         """
         data = {"source": gethostname(), "task": task_id, "type": "continue"}
-        json_data = json.dumps(data)
+        json_data = json.dumps(data).encode("utf-8")
         self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME, body=json_data)
 
     @staticmethod
@@ -226,7 +226,7 @@ class NodeActivityReporter(Thread):
     def run(self):
         while True:
             data = {"source": gethostname()}
-            json_data = json.dumps(data)
+            json_data = json.dumps(data).encode("utf-8")
             self.__channel.basic_publish(exchange="", routing_key=ACTIVITY_NODE_QUEUE_NAME,
                                          body=json_data)
             sleep(15)
