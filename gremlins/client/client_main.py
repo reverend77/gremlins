@@ -10,5 +10,9 @@ def start_subscriber():
 
 
 if __name__ == "__main__":
-    subscriber_proc = [Process(target=start_subscriber) for __ in range(4)]
-    [proc.start() for proc in subscriber_proc]
+    subscriber_proc = []
+    try:
+        subscriber_proc = [Process(target=start_subscriber) for __ in range(4)]
+        [proc.start() for proc in subscriber_proc]
+    except KeyboardInterrupt:
+        pass
