@@ -2,7 +2,6 @@ import pika
 from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber
 from multiprocessing import Process
 from random import randint
-from time import sleep
 
 
 def start_publisher():
@@ -26,5 +25,6 @@ if __name__ == "__main__":
     [proc.start() for proc in subscriber_proc]
 
     while True:
-        hooks = [publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)]) for __ in range(1000)]
+        hooks = [publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)])
+                 for __ in range(randint(1000, 10000))]
         [print(hook()) for hook in hooks]
