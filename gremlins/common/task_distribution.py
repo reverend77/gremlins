@@ -34,6 +34,7 @@ class TaskPublisher(Thread):
         self.__id_source = cycle(range(self._MAX_ID))
         self.__lock = RLock()
         self.__finished_tasks = set()
+        self._task_times = dict()
 
     def __get_next_id(self):
         with self.__lock:
@@ -47,10 +48,16 @@ class TaskPublisher(Thread):
         def process_result(ch, method, properties, body):
             message = json.loads(body.decode("utf-8"))
             task_id = message["id"]
+            submit_time = message["time"]
 
             with self.__lock:
-                self.__finished_tasks.add(task_id)
-                self.__tasks[task_id] = message["result"]
+                if task_id in self._task_times and self._task_times[task_id] == submit_time and task_id in self.__tasks:
+                    """
+                    Checks whether task_id actually belongs to the submitted task - there might be an old task
+                    with the same id. Submit time is what really matters here.
+                    """
+                    self.__finished_tasks.add(task_id)
+                    self.__tasks[task_id] = message["result"]
 
         self.__input_channel.basic_consume(process_result, queue=TASK_RETURN_QUEUE_NAME, no_ack=True)
         self.__input_channel.start_consuming()
@@ -72,6 +79,7 @@ class TaskPublisher(Thread):
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
                                                 body=serialized_task)
             self.__tasks[task_id] = None
+            self._task_times[task_id] = now
 
         task_finished = False
         task_result = None
@@ -88,6 +96,7 @@ class TaskPublisher(Thread):
                     if task_id in self.__finished_tasks:
                         data = self.__tasks[task_id]
                         del self.__tasks[task_id]
+                        del self._task_times[task_id]
                         self.__finished_tasks.remove(task_id)
                         task_finished = True
                         task_result = data
