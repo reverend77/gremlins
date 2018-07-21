@@ -2,11 +2,15 @@ import pika
 from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber
 from multiprocessing import Process
 from random import randint
+from gremlins.common.constant_values import CLIENT_HOSTNAME
+import socket
+
+ip = socket.gethostbyname(CLIENT_HOSTNAME)
 
 
 def start_publisher():
-    connection_in = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
-    connection_out = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
+    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip))
+    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip))
     publisher = TaskPublisher(connection_in, connection_out)
     publisher.start()
 
@@ -14,7 +18,7 @@ def start_publisher():
 
 
 def start_subscriber():
-    connection2 = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
+    connection2 = pika.BlockingConnection(pika.ConnectionParameters(ip))
     subscriber = TaskSubscriber(connection2)
     subscriber.start()
 

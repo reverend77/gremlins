@@ -1,10 +1,11 @@
 from gremlins.common.task_distribution import TaskSubscriber
 import pika
 from multiprocessing import Process
+from gremlins.common.constant_values import CLIENT_HOSTNAME
 
 
 def start_subscriber():
-    connection2 = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
+    connection2 = pika.BlockingConnection(pika.ConnectionParameters(CLIENT_HOSTNAME))
     subscriber = TaskSubscriber(connection2)
     subscriber.start()
 

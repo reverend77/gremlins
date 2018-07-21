@@ -1,0 +1,1 @@
+CLIENT_HOSTNAME = "watson.local"  # requires avahi-discover
