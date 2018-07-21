@@ -21,11 +21,10 @@ def start_subscriber():
 
 if __name__ == "__main__":
     publisher = start_publisher()
-    subscriber_proc = [Process(target=start_subscriber) for __ in range(4)]
+    subscriber_proc = [Process(target=start_subscriber) for __ in range(3)]
     [proc.start() for proc in subscriber_proc]
 
     while True:
-        hooks = [publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)])
-                 for __ in range(randint(1000, 10000))]
-        [print(hook()) for hook in hooks]
+        hook = publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)])
+        print(hook())
 
