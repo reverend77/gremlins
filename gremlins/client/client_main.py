@@ -5,10 +5,8 @@ from random import randint
 from gremlins.common.constant_values import CLIENT_HOSTNAME
 import socket
 
-ip = socket.gethostbyname(CLIENT_HOSTNAME)
 
-
-def start_publisher():
+def start_publisher(ip):
     connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip))
     connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip))
     publisher = TaskPublisher(connection_in, connection_out)
@@ -17,15 +15,19 @@ def start_publisher():
     return publisher
 
 
-def start_subscriber():
+def start_subscriber(ip):
     connection2 = pika.BlockingConnection(pika.ConnectionParameters(ip))
     subscriber = TaskSubscriber(connection2)
     subscriber.start()
 
 
 if __name__ == "__main__":
-    publisher = start_publisher()
-    subscriber_proc = [Process(target=start_subscriber) for __ in range(3)]
+
+    client_hostname = socket.gethostname()  # CLIENT_HOSTNAME
+    ip = socket.gethostbyname(client_hostname)
+
+    publisher = start_publisher(ip)
+    subscriber_proc = [Process(target=start_subscriber, args=[ip]) for __ in range(3)]
     [proc.start() for proc in subscriber_proc]
 
     while True:
