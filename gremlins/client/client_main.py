@@ -30,8 +30,8 @@ def main():
     [proc.start() for proc in subscriber_proc]
 
     while True:
-        hook = publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)])
-        print(hook())
+        hooks = [publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)]) for __ in range(1000)]
+        print([hook() for hook in hooks])
 
 
 if __name__ == "__main__":
