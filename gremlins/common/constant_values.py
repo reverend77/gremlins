@@ -1,1 +1,1 @@
-CLIENT_HOSTNAME = "watson.local"  # requires avahi-discover
+CLIENT_HOSTNAME = "flores.local"  # requires avahi-discover
