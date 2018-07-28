@@ -1,8 +1,10 @@
 import json
 from itertools import cycle
 from socket import gethostname
-from threading import RLock, Thread
+from threading import RLock, Thread, Timer
 from time import sleep, monotonic
+from os import getpid
+
 
 TASK_SUBMIT_QUEUE_NAME = "task_queue"
 TASK_RETURN_QUEUE_NAME = "task_result_queue"
@@ -140,5 +142,63 @@ class TaskSubscriber:
     @staticmethod
     def __execute_task(task_name, args):
         return repr(args[0] * args[1]) + "@" + repr(gethostname())
+
+
+HEARTBEAT_QUEUE_NAME = "heartbeat_queue"
+
+
+class NodeHeartbeatListener(Thread):
+    HEARTBEAT_TIMEOUT = 60
+
+    def __init__(self, connection):
+        Thread.__init__(self)
+        self.__channel = connection.channel()
+
+        self.__channel.queue_declare(queue=HEARTBEAT_QUEUE_NAME, durable=False)
+        self.__channel.basic_qos(prefetch_count=2)
+        self.__channel.queue_purge(queue=HEARTBEAT_QUEUE_NAME)
+
+        self.__lock = RLock()
+        self.__timers = dict()
+
+    def run(self):
+
+        def process_request(ch, method, properties, body):
+            with self.__lock:
+                heartbeat = json.loads(body.decode('utf-8'))
+
+                node_name = heartbeat["node"]
+                if node_name in self.__timers:
+                    self.__timers[node_name].cancel()
+                    del self.__timers[node_name]
+
+                timer = Timer(self.HEARTBEAT_TIMEOUT, lambda: self.timeout_reached(node_name))
+                self.__timers[node_name] = timer
+                timer.start()
+
+        self.__channel.basic_consume(process_request, queue=HEARTBEAT_QUEUE_NAME, no_ack=False)
+        self.__channel.start_consuming()
+
+    def timeout_reached(self, node):
+        with self.__lock:
+            pass
+
+
+
+
+class NodeHeartbeatProducer(Thread):
+    HEARTBEAT_PERIOD = 15
+
+    def __init__(self, connection):
+        Thread.__init__(self)
+        self.__channel = connection.channel()
+
+        self.__channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
+
+    def run(self):
+        while True:
+            heartbeat = json.dumps({"node": "NODE={};PID={}".format(gethostname(), getpid())})
+            self.__channel.basic_publish(exchange="", routing_key=HEARTBEAT_QUEUE_NAME, body=heartbeat)
+            sleep(self.HEARTBEAT_PERIOD)
 
 
