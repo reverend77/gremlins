@@ -1,7 +1,7 @@
 # main function wrapper
 import sys
-from .server import server_main
-from .client import client_main
+from gremlins.server import server_main
+from gremlins.client import client_main
 
 if __name__ == "__main__":
     args = sys.argv
