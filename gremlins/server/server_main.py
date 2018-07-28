@@ -10,7 +10,7 @@ def start_subscriber():
     subscriber.start()
 
 
-if __name__ == "__main__":
+def main():
     subscriber_proc = []
     try:
         subscriber_proc = [Process(target=start_subscriber) for __ in range(3)]
@@ -18,3 +18,7 @@ if __name__ == "__main__":
         start_subscriber()
     except KeyboardInterrupt:
         pass
+
+
+if __name__ == "__main__":
+    main()

@@ -21,8 +21,7 @@ def start_subscriber(ip):
     subscriber.start()
 
 
-if __name__ == "__main__":
-
+def main():
     client_hostname = socket.gethostname()  # CLIENT_HOSTNAME
     ip = socket.gethostbyname(client_hostname)
 
@@ -33,4 +32,8 @@ if __name__ == "__main__":
     while True:
         hook = publisher.submit_task("rotfl", [randint(0, 100), randint(0, 100)])
         print(hook())
+
+
+if __name__ == "__main__":
+    main()
 
