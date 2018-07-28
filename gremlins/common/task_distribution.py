@@ -139,6 +139,6 @@ class TaskSubscriber:
 
     @staticmethod
     def __execute_task(task_name, args):
-        return args[0] * args[1]
+        return repr(args[0] * args[1]) + "@" + repr(gethostname())
 
 
