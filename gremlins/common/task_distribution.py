@@ -184,8 +184,6 @@ class NodeHeartbeatListener(Thread):
             pass
 
 
-
-
 class NodeHeartbeatProducer(Thread):
     HEARTBEAT_PERIOD = 15
 
