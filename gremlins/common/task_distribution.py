@@ -9,6 +9,7 @@ from os import getpid
 TASK_SUBMIT_QUEUE_NAME = "task_queue"
 TASK_RETURN_QUEUE_NAME = "task_result_queue"
 ACTIVITY_NODE_QUEUE_NAME = "activity_observer_queue"
+SUB_TASK_SUBMIT_QUEUE_NAME = "sub_task_queue"
 
 
 class TaskPublisher(Thread):
@@ -144,59 +145,69 @@ class TaskSubscriber:
         return repr(args[0] * args[1]) + "@" + repr(gethostname())
 
 
-HEARTBEAT_QUEUE_NAME = "heartbeat_queue"
+class TaskDivider(Thread):
+    """
+    Class used to divide a task into multiple subtasks without the need to explicitly synchronize on client side.
+    """
 
-
-class NodeHeartbeatListener(Thread):
-    HEARTBEAT_TIMEOUT = 60
-
-    def __init__(self, connection):
+    def __init__(self, connection_in, connection_out):
         Thread.__init__(self)
-        self.__channel = connection.channel()
 
-        self.__channel.queue_declare(queue=HEARTBEAT_QUEUE_NAME, durable=False)
-        self.__channel.basic_qos(prefetch_count=2)
-        self.__channel.queue_purge(queue=HEARTBEAT_QUEUE_NAME)
+        self.__input_channel = connection_in.channel()
+        self.__task_submit_channel = connection_out.channel()
 
-        self.__lock = RLock()
-        self.__timers = dict()
+        self.__input_channel.queue_declare(queue=SUB_TASK_SUBMIT_QUEUE_NAME, durable=False)
+        self.__task_submit_channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
+
+        self.__task_submit_channel.queue_purge(queue=SUB_TASK_SUBMIT_QUEUE_NAME)
+
+        self.__task_hierarchy = dict()
+        self.__awaiting_tasks = dict()  # id -> how many
+        self.__task_times = dict()
+        self.__task_functions = dict()
+        self.__task_results = dict()
+        self.__task_types = dict()  # task or sub-task
 
     def run(self):
-
         def process_request(ch, method, properties, body):
-            with self.__lock:
-                heartbeat = json.loads(body.decode('utf-8'))
+            request = json.loads(body.decode('utf-8'))
+            task_id = request["id"]
 
-                node_name = heartbeat["node"]
-                if node_name in self.__timers:
-                    self.__timers[node_name].cancel()
-                    del self.__timers[node_name]
+            if request["type"] == "divide":
+                merge_function = request["function"]
+                # TODO
+            elif request["type"] == "result":
+                result = request["result"]
 
-                timer = Timer(self.HEARTBEAT_TIMEOUT, lambda: self.timeout_reached(node_name))
-                self.__timers[node_name] = timer
-                timer.start()
+                self.__task_results[task_id] = result
 
-        self.__channel.basic_consume(process_request, queue=HEARTBEAT_QUEUE_NAME, no_ack=False)
-        self.__channel.start_consuming()
+                has_next_level = True
+                current_task_id = task_id
+                completed_tasks = []
+                while has_next_level:
+                    has_next_level = False
 
-    def timeout_reached(self, node):
-        with self.__lock:
-            pass
+                    for task, sub_tasks in self.__task_hierarchy.items():
+                        if current_task_id in sub_tasks:
+                            self.__awaiting_tasks[current_task_id] -= 1
 
+                            if self.__awaiting_tasks[current_task_id] == 0:
+                                current_task_id = task
+                                completed_tasks.append(task)
+                                has_next_level = True
+                                break
 
-class NodeHeartbeatProducer(Thread):
-    HEARTBEAT_PERIOD = 15
+                for completed_task in completed_tasks:
+                    self.__complete_task(completed_task)
 
-    def __init__(self, connection):
-        Thread.__init__(self)
-        self.__channel = connection.channel()
+        self.__input_channel.basic_consume(process_request, queue=SUB_TASK_SUBMIT_QUEUE_NAME, no_ack=False)
+        self.__input_channel.start_consuming()
 
-        self.__channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
+    def __complete_task(self, task_id):
+        pass
 
-    def run(self):
-        while True:
-            heartbeat = json.dumps({"node": "NODE={};PID={}".format(gethostname(), getpid())})
-            self.__channel.basic_publish(exchange="", routing_key=HEARTBEAT_QUEUE_NAME, body=heartbeat)
-            sleep(self.HEARTBEAT_PERIOD)
+    def __submit_task(self, function_name, arguments, master_task=None):
+        pass
+
 
 
