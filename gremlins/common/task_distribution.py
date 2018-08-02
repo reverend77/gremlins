@@ -3,7 +3,6 @@ from itertools import cycle
 from socket import gethostname
 from threading import RLock, Thread, Timer
 from time import sleep, monotonic
-from os import getpid
 
 
 TASK_SUBMIT_QUEUE_NAME = "task_queue"
@@ -37,28 +36,24 @@ class TaskPublisher(Thread):
         self.__id_source = cycle(range(self._MAX_ID))
         self.__lock = RLock()
         self.__finished_tasks = set()
-        self._task_times = dict()
 
     def __get_next_id(self):
+        """
+        ID combines time and an generated identifier.
+        :return: string with new, unique task id
+        """
         with self.__lock:
             task_id = next(self.__id_source)
-            while task_id in self.__tasks:
-                task_id += 1
-            return task_id
+            return "{}@{}".format(task_id, monotonic())
 
     def run(self):
 
         def process_result(ch, method, properties, body):
             message = json.loads(body.decode("utf-8"))
             task_id = message["id"]
-            submit_time = message["time"]
 
             with self.__lock:
-                if task_id in self._task_times and self._task_times[task_id] == submit_time and task_id in self.__tasks:
-                    """
-                    Checks whether task_id actually belongs to the submitted task - there might be an old task
-                    with the same id. Submit time is what really matters here.
-                    """
+                if task_id in self.__tasks:
                     self.__finished_tasks.add(task_id)
                     self.__tasks[task_id] = message["result"]
 
@@ -73,16 +68,14 @@ class TaskPublisher(Thread):
         :return: Returns a callable object. When the object is called, it blocks until a result is retrieved.
         The callable returns the result, without exposing the internal mechanisms of the producer-substriber pair.
         """
-        now = monotonic()
 
         task_id = self.__get_next_id()
-        task_data = {"task": task_name, "args": task_args, "id": task_id, "time": now}
+        task_data = {"task": task_name, "args": task_args, "id": task_id}
         serialized_task = json.dumps(task_data).encode("utf-8")
         with self.__lock:
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
                                                 body=serialized_task)
             self.__tasks[task_id] = None
-            self._task_times[task_id] = now
 
         task_finished = False
         task_result = None
@@ -99,7 +92,6 @@ class TaskPublisher(Thread):
                     if task_id in self.__finished_tasks:
                         data = self.__tasks[task_id]
                         del self.__tasks[task_id]
-                        del self._task_times[task_id]
                         self.__finished_tasks.remove(task_id)
                         task_finished = True
                         task_result = data
@@ -130,8 +122,7 @@ class TaskSubscriber:
             request = json.loads(body.decode('utf-8'))
 
             result = self.__execute_task(request["task"], request["args"])
-            result_dict = {"id": request["id"], "result": result, "source": gethostname(), "type": "result",
-                           "time": request["time"]}
+            result_dict = {"id": request["id"], "result": result, "source": gethostname(), "type": "result"}
             result_json = json.dumps(result_dict).encode("utf-8")
 
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
@@ -150,6 +141,8 @@ class TaskDivider(Thread):
     Class used to divide a task into multiple subtasks without the need to explicitly synchronize on client side.
     """
 
+    _MAX_ID = 100_000
+
     def __init__(self, connection_in, connection_out):
         Thread.__init__(self)
 
@@ -163,10 +156,18 @@ class TaskDivider(Thread):
 
         self.__task_hierarchy = dict()
         self.__awaiting_tasks = dict()  # id -> how many
-        self.__task_times = dict()
         self.__task_functions = dict()
         self.__task_results = dict()
-        self.__task_types = dict()  # task or sub-task
+
+        self.__id_source = cycle(range(self._MAX_ID))
+
+    def __get_next_id(self, parent_id):
+        """
+        ID combines time and an generated identifier.
+        :return: string with new, unique task id
+        """
+        task_id = next(self.__id_source)
+        return "{}@{}@{}".format(parent_id, task_id, monotonic())
 
     def run(self):
         def process_request(ch, method, properties, body):
@@ -178,27 +179,13 @@ class TaskDivider(Thread):
                 # TODO
             elif request["type"] == "result":
                 result = request["result"]
-
+                parent_task = request["parent"]
                 self.__task_results[task_id] = result
 
-                has_next_level = True
-                current_task_id = task_id
-                completed_tasks = []
-                while has_next_level:
-                    has_next_level = False
+                self.__awaiting_tasks[parent_task] -= 1
 
-                    for task, sub_tasks in self.__task_hierarchy.items():
-                        if current_task_id in sub_tasks:
-                            self.__awaiting_tasks[current_task_id] -= 1
-
-                            if self.__awaiting_tasks[current_task_id] == 0:
-                                current_task_id = task
-                                completed_tasks.append(task)
-                                has_next_level = True
-                                break
-
-                for completed_task in completed_tasks:
-                    self.__complete_task(completed_task)
+                if self.__awaiting_tasks[parent_task] == 0:
+                    self.__complete_task(parent_task)
 
         self.__input_channel.basic_consume(process_request, queue=SUB_TASK_SUBMIT_QUEUE_NAME, no_ack=False)
         self.__input_channel.start_consuming()
