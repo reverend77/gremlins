@@ -1,9 +1,8 @@
 import json
 from itertools import cycle
 from socket import gethostname
-from threading import RLock, Thread, Timer
+from threading import RLock, Thread
 from time import sleep, monotonic
-
 
 TASK_SUBMIT_QUEUE_NAME = "task_queue"
 TASK_RETURN_QUEUE_NAME = "task_result_queue"
@@ -102,6 +101,14 @@ class TaskPublisher(Thread):
         return join
 
 
+class TaskDivisionExpectedException(Exception):
+
+    def __init__(self, merge_function, sub_tasks):
+        Exception.__init__(self)
+        self.merge_function = merge_function
+        self.sub_tasks = sub_tasks
+
+
 class TaskSubscriber:
     """
     Task subscriber aka worker. Ideally, one instance per
@@ -121,17 +128,33 @@ class TaskSubscriber:
     def start(self):
         def process_request(ch, method, properties, body):
             request = json.loads(body.decode('utf-8'))
-
-            result = self.__execute_task(request["task"], request["args"])
-            result_dict = {"id": request["id"], "result": result, "source": gethostname(), "type": "result"}
-            result_json = json.dumps(result_dict).encode("utf-8")
+            task_id = request["id"]
 
             is_root_task = request["is_root_task"]
 
-            self.__output_channel.basic_publish(exchange="",
-                                                routing_key=
-                                                TASK_RETURN_QUEUE_NAME if is_root_task else SUB_TASK_SUBMIT_QUEUE_NAME,
-                                                body=result_json)
+            try:
+                result = self.__execute_task(request["task"], request["args"])
+                result_dict = {"id": task_id, "result": result, "source": gethostname(), "type": "result"}
+
+                if not is_root_task:
+                    result_dict["parent"] = request["parent"]
+
+                result_json = json.dumps(result_dict).encode("utf-8")
+
+                self.__output_channel.basic_publish(exchange="",
+                                                    routing_key=
+                                                    TASK_RETURN_QUEUE_NAME if is_root_task
+                                                    else SUB_TASK_SUBMIT_QUEUE_NAME,
+                                                    body=result_json)
+            except TaskDivisionExpectedException as details:
+                new_request = {"id": task_id, "source": gethostname(), "type": "division",
+                               "sub_tasks": details.sub_tasks, "task": details.merge_function,
+                               "is_root_task": is_root_task}
+
+                new_request_json = json.dumps(new_request).encode("utf-8")
+                self.__output_channel.basic_publish(exchange="",
+                                                    routing_key=SUB_TASK_SUBMIT_QUEUE_NAME,
+                                                    body=new_request_json)
 
         self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=False)
         self.__input_channel.start_consuming()
@@ -181,9 +204,9 @@ class TaskDivider(Thread):
             request = json.loads(body.decode('utf-8'))
             task_id = request["id"]
 
-            if request["type"] == "divide":
+            if request["type"] == "division":
 
-                if "parent" not in request:
+                if request["is_root_task"]:
                     self.__root_tasks.add(task_id)
 
                 merge_function = request["task"]
@@ -203,7 +226,7 @@ class TaskDivider(Thread):
                     self.__awaiting_tasks[task_id] += 1
                     self.__task_hierarchy[task_id].append(sub_task_id)
                     sub_task_call = (lambda: self.__submit_task(function_name, function_args, sub_task_id
-                                        , extras=sub_task_metadata))
+                                                                , extras=sub_task_metadata))
                     to_call.append(sub_task_call)
 
                 for sub_task_call in to_call:
@@ -251,6 +274,3 @@ class TaskDivider(Thread):
 
         self.__task_submit_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
                                                  body=serialized_task)
-
-
-
