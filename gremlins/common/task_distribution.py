@@ -70,7 +70,7 @@ class TaskPublisher(Thread):
         """
 
         task_id = self.__get_next_id()
-        task_data = {"task": task_name, "args": task_args, "id": task_id}
+        task_data = {"task": task_name, "args": task_args, "id": task_id, "is_root_task": True}
         serialized_task = json.dumps(task_data).encode("utf-8")
         with self.__lock:
             self.__output_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
@@ -112,6 +112,7 @@ class TaskSubscriber:
         input_channel = connection.channel()
 
         output_channel.queue_declare(queue=TASK_SUBMIT_QUEUE_NAME, durable=False)
+        output_channel.queue_declare(queue=SUB_TASK_SUBMIT_QUEUE_NAME, durable=False)
         input_channel.queue_declare(queue=TASK_RETURN_QUEUE_NAME, durable=False)
 
         self.__output_channel = output_channel
@@ -125,7 +126,11 @@ class TaskSubscriber:
             result_dict = {"id": request["id"], "result": result, "source": gethostname(), "type": "result"}
             result_json = json.dumps(result_dict).encode("utf-8")
 
-            self.__output_channel.basic_publish(exchange="", routing_key=TASK_RETURN_QUEUE_NAME,
+            is_root_task = request["is_root_task"]
+
+            self.__output_channel.basic_publish(exchange="",
+                                                routing_key=
+                                                TASK_RETURN_QUEUE_NAME if is_root_task else SUB_TASK_SUBMIT_QUEUE_NAME,
                                                 body=result_json)
 
         self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=False)
