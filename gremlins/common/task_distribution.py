@@ -159,6 +159,8 @@ class TaskDivider(Thread):
         self.__task_functions = dict()
         self.__task_results = dict()
 
+        self.__root_tasks = set()
+
         self.__id_source = cycle(range(self._MAX_ID))
 
     def __get_next_id(self, parent_id):
@@ -175,8 +177,33 @@ class TaskDivider(Thread):
             task_id = request["id"]
 
             if request["type"] == "divide":
-                merge_function = request["function"]
-                # TODO
+
+                if "parent" not in request:
+                    self.__root_tasks.add(task_id)
+
+                merge_function = request["task"]
+                sub_tasks = request["sub_tasks"]
+
+                to_call = []
+                self.__awaiting_tasks[task_id] = 0
+                self.__task_hierarchy[task_id] = []
+                self.__task_functions[task_id] = merge_function
+
+                for sub_task in sub_tasks:
+                    function_name = sub_task["task"]
+                    function_args = sub_task["args"]
+                    sub_task_metadata = {"parent": task_id}
+
+                    sub_task_id = self.__get_next_id(task_id)
+                    self.__awaiting_tasks[task_id] += 1
+                    self.__task_hierarchy[task_id].append(sub_task_id)
+                    sub_task_call = (lambda: self.__submit_task(function_name, function_args, sub_task_id
+                                        , extras=sub_task_metadata))
+                    to_call.append(sub_task_call)
+
+                for sub_task_call in to_call:
+                    sub_task_call()
+
             elif request["type"] == "result":
                 result = request["result"]
                 parent_task = request["parent"]
@@ -185,16 +212,40 @@ class TaskDivider(Thread):
                 self.__awaiting_tasks[parent_task] -= 1
 
                 if self.__awaiting_tasks[parent_task] == 0:
-                    self.__complete_task(parent_task)
+                    self.__merge_divided_task(parent_task)
 
         self.__input_channel.basic_consume(process_request, queue=SUB_TASK_SUBMIT_QUEUE_NAME, no_ack=False)
         self.__input_channel.start_consuming()
 
-    def __complete_task(self, task_id):
-        pass
+    def __merge_divided_task(self, task_id):
 
-    def __submit_task(self, function_name, arguments, master_task=None):
-        pass
+        args = []
+        for sub_task_id in self.__task_hierarchy[task_id]:
+            args.append(self.__task_results[sub_task_id])
+            del self.__task_results[sub_task_id]
+
+        if task_id in self.__root_tasks:
+            self.__root_tasks.remove(task_id)
+            is_root = True
+        else:
+            is_root = False
+
+        function_to_call = self.__task_functions[task_id]
+
+        del self.__task_functions[task_id]
+        del self.__task_hierarchy[task_id]
+        del self.__awaiting_tasks[task_id]
+
+        self.__submit_task(function_to_call, args, task_id, is_root_task=is_root)
+
+    def __submit_task(self, function_name, arguments, task_id, is_root_task=False, extras={}):
+        task_data = {"task": function_name, "args": arguments, "id": task_id, "is_root_task": is_root_task}
+        task_data.update(extras)
+
+        serialized_task = json.dumps(task_data).encode("utf-8")
+
+        self.__task_submit_channel.basic_publish(exchange="", routing_key=TASK_SUBMIT_QUEUE_NAME,
+                                                 body=serialized_task)
 
 
 
