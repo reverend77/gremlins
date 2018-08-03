@@ -161,7 +161,18 @@ class TaskSubscriber:
 
     @staticmethod
     def __execute_task(task_name, args):
-        return repr(args[0] * args[1]) + "@" + repr(gethostname())
+        if task_name == "sum":
+            return sum(args)
+        elif task_name == "fibonacci":
+            num = args[0]
+            if num <= 1:
+                return 1
+            else:
+                sub_task_1 = {"task": "fibonacci", "args": [num - 1]}
+                sub_task_2 = {"task": "fibonacci", "args": [num - 2]}
+                raise TaskDivisionExpectedException("sum", [sub_task_1, sub_task_2])
+        else:
+            return repr(args[0] * args[1]) + "@" + repr(gethostname())
 
 
 class TaskDivider(Thread):
