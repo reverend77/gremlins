@@ -35,7 +35,7 @@ def main():
     ip = socket.gethostbyname(client_hostname)
 
     publisher = start_publisher(ip)
-    divider = start_divider(ip)
+    divider_proc = Process(target=start_divider, args=[ip])
 
     subscriber_proc = [Process(target=start_subscriber, args=[ip]) for __ in range(3)]
     [proc.start() for proc in subscriber_proc]
