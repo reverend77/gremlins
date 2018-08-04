@@ -197,6 +197,7 @@ class TaskDivider(Thread):
         self.__awaiting_tasks = dict()  # id -> how many
         self.__task_functions = dict()
         self.__task_results = dict()
+        self.__task_parent = dict()
 
         self.__root_tasks = set()
 
@@ -236,6 +237,7 @@ class TaskDivider(Thread):
                     sub_task_id = self.__get_next_id(task_id)
                     self.__awaiting_tasks[task_id] += 1
                     self.__task_hierarchy[task_id].append(sub_task_id)
+                    self.__task_parent[sub_task_id] = task_id
                     sub_task_call = (lambda fun=function_name, id=sub_task_id, args=function_args,
                                             extras=sub_task_metadata: self.__submit_task(fun, args, id, extras=extras))
                     to_call.append(sub_task_call)
@@ -277,10 +279,8 @@ class TaskDivider(Thread):
 
         extras = {}
         if not is_root:
-            for task, sub_tasks in self.__task_hierarchy.items():
-                if task_id in sub_tasks:
-                    extras["parent"] = task
-                    break
+            extras["parent"] = self.__task_parent[task_id]
+            del self.__task_parent[task_id]
 
         self.__submit_task(function_to_call, args, task_id, is_root_task=is_root, extras=extras)
 
