@@ -7,8 +7,8 @@ from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber, Tas
 
 
 def start_publisher(ip):
-    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
-    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
+    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat=0))
+    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat=0))
     publisher = TaskPublisher(connection_in, connection_out)
     publisher.start()
 
@@ -16,8 +16,8 @@ def start_publisher(ip):
 
 
 def start_divider(ip):
-    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
-    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
+    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat=0))
+    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat=0))
     divider = TaskDivider(connection_in, connection_out)
     divider.start()
 
@@ -25,7 +25,7 @@ def start_divider(ip):
 
 
 def start_subscriber(ip):
-    connection2 = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
+    connection2 = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat=0))
     subscriber = TaskSubscriber(connection2)
     subscriber.start()
 
