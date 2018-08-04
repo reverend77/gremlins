@@ -136,9 +136,6 @@ class TaskSubscriber:
                 result = self.__execute_task(request["task"], request["args"])
                 result_dict = {"id": task_id, "result": result, "source": gethostname(), "type": "result"}
 
-                if "parent" in request:
-                    result_dict["parent"] = request["parent"]
-
                 result_json = json.dumps(result_dict).encode("utf-8")
 
                 self.__output_channel.basic_publish(exchange="",
@@ -231,17 +228,16 @@ class TaskDivider(Thread):
                 for sub_task in sub_tasks:
                     function_name = sub_task["task"]
                     function_args = sub_task["args"]
-                    sub_task_metadata = {"parent": task_id}
 
                     sub_task_id = self.__get_next_id(task_id)
                     self.__awaiting_tasks[task_id] += 1
                     self.__task_hierarchy[task_id].append(sub_task_id)
                     self.__task_parent[sub_task_id] = task_id
-                    self.__submit_task(function_name, function_args, sub_task_id, extras=sub_task_metadata)
+                    self.__submit_task(function_name, function_args, sub_task_id)
 
             elif request["type"] == "result":
                 result = request["result"]
-                parent_task = request["parent"]
+                parent_task = self.__task_parent[task_id]
                 self.__task_results[task_id] = result
 
                 self.__awaiting_tasks[parent_task] -= 1
@@ -258,6 +254,7 @@ class TaskDivider(Thread):
         for sub_task_id in self.__task_hierarchy[task_id]:
             args.append(self.__task_results[sub_task_id])
             del self.__task_results[sub_task_id]
+            del self.__task_parent[sub_task_id]
 
         if task_id in self.__root_tasks:
             self.__root_tasks.remove(task_id)
@@ -271,16 +268,10 @@ class TaskDivider(Thread):
         del self.__task_hierarchy[task_id]
         del self.__awaiting_tasks[task_id]
 
-        extras = {}
-        if not is_root:
-            extras["parent"] = self.__task_parent[task_id]
-            del self.__task_parent[task_id]
+        self.__submit_task(function_to_call, args, task_id, is_root_task=is_root)
 
-        self.__submit_task(function_to_call, args, task_id, is_root_task=is_root, extras=extras)
-
-    def __submit_task(self, function_name, arguments, task_id, is_root_task=False, extras={}):
+    def __submit_task(self, function_name, arguments, task_id, is_root_task=False):
         task_data = {"task": function_name, "args": arguments, "id": task_id, "is_root_task": is_root_task}
-        task_data.update(extras)
 
         serialized_task = json.dumps(task_data).encode("utf-8")
 
