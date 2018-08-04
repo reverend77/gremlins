@@ -1,14 +1,14 @@
-import pika
-from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber, TaskDivider
-from multiprocessing import Process
-from random import randint
-from gremlins.common.constant_values import CLIENT_HOSTNAME
 import socket
+from multiprocessing import Process
+
+import pika
+
+from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber, TaskDivider
 
 
 def start_publisher(ip):
-    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip))
-    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip))
+    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
+    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
     publisher = TaskPublisher(connection_in, connection_out)
     publisher.start()
 
@@ -16,8 +16,8 @@ def start_publisher(ip):
 
 
 def start_divider(ip):
-    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip))
-    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip))
+    connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
+    connection_out = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
     divider = TaskDivider(connection_in, connection_out)
     divider.start()
 
@@ -25,7 +25,7 @@ def start_divider(ip):
 
 
 def start_subscriber(ip):
-    connection2 = pika.BlockingConnection(pika.ConnectionParameters(ip))
+    connection2 = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat_interval=0))
     subscriber = TaskSubscriber(connection2)
     subscriber.start()
 
@@ -48,4 +48,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -153,7 +153,7 @@ class TaskSubscriber:
                                                     routing_key=SUB_TASK_SUBMIT_QUEUE_NAME,
                                                     body=new_request_json)
 
-        self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=False)
+        self.__input_channel.basic_consume(process_request, queue=TASK_SUBMIT_QUEUE_NAME, no_ack=True)
         self.__input_channel.start_consuming()
 
     @staticmethod
