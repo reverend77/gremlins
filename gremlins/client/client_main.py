@@ -36,6 +36,7 @@ def main():
 
     publisher = start_publisher(ip)
     divider_proc = Process(target=start_divider, args=[ip])
+    divider_proc.start()
 
     subscriber_proc = [Process(target=start_subscriber, args=[ip]) for __ in range(3)]
     [proc.start() for proc in subscriber_proc]
