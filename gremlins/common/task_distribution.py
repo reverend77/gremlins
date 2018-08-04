@@ -224,7 +224,6 @@ class TaskDivider(Thread):
                 merge_function = request["task"]
                 sub_tasks = request["sub_tasks"]
 
-                to_call = []
                 self.__awaiting_tasks[task_id] = 0
                 self.__task_hierarchy[task_id] = []
                 self.__task_functions[task_id] = merge_function
@@ -238,12 +237,7 @@ class TaskDivider(Thread):
                     self.__awaiting_tasks[task_id] += 1
                     self.__task_hierarchy[task_id].append(sub_task_id)
                     self.__task_parent[sub_task_id] = task_id
-                    sub_task_call = (lambda fun=function_name, id=sub_task_id, args=function_args,
-                                            extras=sub_task_metadata: self.__submit_task(fun, args, id, extras=extras))
-                    to_call.append(sub_task_call)
-
-                for sub_task_call in to_call:
-                    sub_task_call()
+                    self.__submit_task(function_name, function_args, sub_task_id, extras=sub_task_metadata)
 
             elif request["type"] == "result":
                 result = request["result"]
