@@ -136,7 +136,7 @@ class TaskSubscriber:
                 result = self.__execute_task(request["task"], request["args"])
                 result_dict = {"id": task_id, "result": result, "source": gethostname(), "type": "result"}
 
-                if not is_root_task:
+                if "parent" in request:
                     result_dict["parent"] = request["parent"]
 
                 result_json = json.dumps(result_dict).encode("utf-8")
@@ -275,7 +275,14 @@ class TaskDivider(Thread):
         del self.__task_hierarchy[task_id]
         del self.__awaiting_tasks[task_id]
 
-        self.__submit_task(function_to_call, args, task_id, is_root_task=is_root)
+        extras = {}
+        if not is_root:
+            for task, sub_tasks in self.__task_hierarchy.items():
+                if task_id in sub_tasks:
+                    extras["parent"] = task
+                    break
+
+        self.__submit_task(function_to_call, args, task_id, is_root_task=is_root, extras=extras)
 
     def __submit_task(self, function_name, arguments, task_id, is_root_task=False, extras={}):
         task_data = {"task": function_name, "args": arguments, "id": task_id, "is_root_task": is_root_task}
