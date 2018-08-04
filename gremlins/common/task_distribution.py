@@ -96,7 +96,7 @@ class TaskPublisher(Thread):
                         task_result = data
 
                         return data
-                sleep(0.01)
+                sleep(0.2)
 
         return join
 
