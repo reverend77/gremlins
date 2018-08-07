@@ -43,7 +43,7 @@ class TaskPublisher(Thread):
         """
         with self.__lock:
             task_id = next(self.__id_source)
-            return "{}@{}".format(task_id, monotonic())
+            return "TASK_{}_{}".format(task_id, monotonic())
 
     def run(self):
 
@@ -200,13 +200,13 @@ class TaskDivider(Thread):
 
         self.__id_source = cycle(range(self._MAX_ID))
 
-    def __get_next_id(self, parent_id):
+    def __get_next_id(self):
         """
         ID combines time and an generated identifier.
         :return: string with new, unique task id
         """
         task_id = next(self.__id_source)
-        return "{}@{}@{}".format(parent_id, task_id, monotonic())
+        return "SUB_{}_{}".format(task_id, monotonic())
 
     def run(self):
         def process_request(ch, method, properties, body):
@@ -229,7 +229,7 @@ class TaskDivider(Thread):
                     function_name = sub_task["task"]
                     function_args = sub_task["args"]
 
-                    sub_task_id = self.__get_next_id(task_id)
+                    sub_task_id = self.__get_next_id()
                     self.__awaiting_tasks[task_id] += 1
                     self.__task_hierarchy[task_id].append(sub_task_id)
                     self.__task_parent[sub_task_id] = task_id
