@@ -1,13 +1,9 @@
 import socket
-from multiprocessing import Process
-from threading import Thread
 import pika
 from time import monotonic
-
+from gremlins.common.utils import Worker
 from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber, TaskDivider
-from gremlins.common.utils import is_cpython
 
-Worker = Process if is_cpython() else Thread
 
 def start_publisher(ip):
     connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat=0))
