@@ -1,10 +1,13 @@
 import socket
 from multiprocessing import Process
-
+from threading import Thread
 import pika
+from time import monotonic
 
 from gremlins.common.task_distribution import TaskPublisher, TaskSubscriber, TaskDivider
+from gremlins.common.utils import is_cpython
 
+Worker = Process if is_cpython() else Thread
 
 def start_publisher(ip):
     connection_in = pika.BlockingConnection(pika.ConnectionParameters(ip, heartbeat=0))
@@ -35,15 +38,18 @@ def main():
     ip = socket.gethostbyname(client_hostname)
 
     publisher = start_publisher(ip)
-    divider_proc = Process(target=start_divider, args=[ip])
+    divider_proc = Worker(target=start_divider, args=[ip])
     divider_proc.start()
 
-    subscriber_proc = [Process(target=start_subscriber, args=[ip]) for __ in range(3)]
+    subscriber_proc = [Worker(target=start_subscriber, args=[ip]) for __ in range(3)]
     [proc.start() for proc in subscriber_proc]
 
     for num in range(500):
+        start = monotonic()
         hook = publisher.submit_task("fibonacci", [num])
-        print(hook())
+        result = hook()
+        end = monotonic()
+        print("Time: {}|Index: {}| Value: {}".format(int(end-start), num, result))
 
 
 if __name__ == "__main__":

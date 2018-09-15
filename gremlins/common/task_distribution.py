@@ -14,7 +14,7 @@ class TaskPublisher(Thread):
     """
     Only one instance of this class should be created during program execution.
     """
-    _MAX_ID = 100_000_000_000
+    _MAX_ID = 100000000000
 
     def __init__(self, connection_in, connection_out):
         Thread.__init__(self)
@@ -177,7 +177,7 @@ class TaskDivider(Thread):
     Class used to divide a task into multiple subtasks without the need to explicitly synchronize on client side.
     """
 
-    _MAX_ID = 100_000_000_000
+    _MAX_ID = 100000000000
 
     def __init__(self, connection_in, connection_out):
         Thread.__init__(self)
